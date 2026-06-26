@@ -1,0 +1,31 @@
+# Compiled binaries and local executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+parsecore
+
+# Go workspace and dependencies
+vendor/
+go.work
+.go/
+
+# Test outputs and temporary files
+out*.json
+results*.json
+output.json
+sample.pdf
+/tests/temp/
+test_doc_*.docx
+test_csv_*.csv
+test_text_*.txt
+
+# IDEs and editors configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
