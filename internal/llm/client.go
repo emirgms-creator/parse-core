@@ -23,7 +23,7 @@ func NewClient(baseURL string, model string) *Client {
 		baseURL = "http://localhost:11434"
 	}
 	if model == "" {
-		model = "phi-4"
+		model = "phi4-mini"
 	}
 	return &Client{
 		BaseURL: baseURL,

@@ -71,16 +71,16 @@ parse-core/
 
 1.  **Go**: Go 1.21+ installed on your local machine.
 2.  **Ollama**: Install [Ollama](https://ollama.com/) locally.
-3.  **Local Model**: Pull the default model (Phi-4):
+3.  **Local Model**: Pull the default model (phi4-mini):
     ```bash
-    ollama pull phi4
+    ollama pull phi4-mini
     ```
 
 ### Compilation
 
 Compile the CLI binary:
 ```bash
-go build -o parsecore ./cmd/parsecore
+go build ./cmd/parsecore
 ```
 *(On Windows, this generates `parsecore.exe`)*.
 
@@ -99,7 +99,7 @@ Use the `extract` subcommand to process local documents.
 *   `-i, --input` (Required): Path to target document (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`).
 *   `-o, --output` (Required): Path to save the resulting structured JSON array.
 *   `-s, --schema` (Default: `generic`): Extraction schema type (`generic`, `contract`, `invoice`) or a local custom JSON schema file path (e.g. `--schema ./invoice_template.json`).
-*   `-m, --model` (Default: `phi-4`): Local LLM model tag registered in Ollama.
+*   `-m, --model` (Default: `phi4-mini`): Local LLM model tag registered in Ollama.
 *   `-w, --workers` (Default: `4`): Number of concurrent goroutines parsing text chunks.
 *   `--chunk-size` (Default: `2000`): Maximum character limit per semantic chunk.
 *   `--overlap` (Default: `200`): Overlap size between adjacent chunks.
@@ -123,7 +123,7 @@ Create a custom schema file `contract_terms.json`:
 ```
 Execute extraction:
 ```bash
-./parsecore extract -i lease.docx -o terms.json --schema contract_terms.json -m phi4:latest -w 2
+./parsecore extract -i lease.docx -o terms.json --schema contract_terms.json -m phi4-mini:latest -w 2
 ```
 
 ---

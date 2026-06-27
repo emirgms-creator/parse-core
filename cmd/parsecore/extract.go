@@ -52,7 +52,7 @@ and structures the contents into specific JSON schemas concurrently using a loca
 func init() {
 	extractCmd.Flags().StringVarP(&inputPath, "input", "i", "", "Path to the target document (Required)")
 	extractCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to save the resulting JSON array (Required)")
-	extractCmd.Flags().StringVarP(&modelName, "model", "m", "phi-4", "The local Ollama model to use")
+	extractCmd.Flags().StringVarP(&modelName, "model", "m", "phi4-mini", "The local Ollama model to use")
 	extractCmd.Flags().StringVar(&ollamaURL, "url", "http://localhost:11434", "Ollama API server URL")
 	extractCmd.Flags().StringVarP(&schemaName, "schema", "s", "generic", "The extraction schema to target (generic, contract, invoice)")
 	extractCmd.Flags().IntVarP(&workerCount, "workers", "w", 4, "Number of concurrent worker Go routines")
