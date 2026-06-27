@@ -13,6 +13,7 @@ It is engineered to extract unstructured text from multiple document formats, br
 ## Key Features
 
 *   **Multi-Format Ingestion**: Unified Document Extractor Factory supporting:
+    *   `http://` & `https://` URLs (live web crawling with script, style, nav, and footer stripping)
     *   `.pdf` (using lightweight text extraction)
     *   `.docx` (pure-Go CGO-free Word XML processor)
     *   `.csv` (variable-column tolerant table parser mapping headers to values)
@@ -57,9 +58,11 @@ parse-core/
 │   │   ├── excel.go               # Excel sheet extractor (v0.2.0)
 │   │   ├── json.go                # JSON and JSONL array/NDJSON extractor (v0.2.0)
 │   │   ├── xml.go                 # XML node recursive extractor (v0.2.0)
+│   │   ├── web.go                 # Live Web Ingestion extractor (v0.2.0)
 │   │   ├── docx.go                # CGO-free DOCX extractor
 │   │   ├── router.go              # Heuristic cleaning & LLM routing engine
 │   │   ├── router_test.go         # Router and fast-pass unit tests
+│   │   ├── web_test.go            # Web extraction mock server unit tests
 │   │   ├── new_formats_test.go    # Excel, JSON, XML extractor unit tests
 │   │   └── extractor_test.go      # Boundary unit tests
 │   ├── llm/
@@ -107,7 +110,7 @@ Use the `extract` subcommand to process local documents.
 
 ### Command Flags
 
-*   `-i, --input` (Required): Path to target document (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`, `.xlsx`, `.json`, `.jsonl`, `.xml`).
+*   `-i, --input` (Required): Path to target document/URL (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`, `.xlsx`, `.json`, `.jsonl`, `.xml` or `http://`/`https://` URLs).
 *   `-o, --output` (Required): Path to save the resulting structured JSON array.
 *   `-s, --schema` (Default: `auto`): Extraction schema type (`auto`, `generic`, `contract`, `invoice`) or a local custom JSON schema file path (e.g. `--schema ./invoice_template.json`). If `auto`, the system auto-infers headers/keys for structured rows (CSV, Excel, JSON, XML) and falls back to `generic` for unstructured documents.
 *   `-m, --model` (Default: `phi4-mini`): Local LLM model tag registered in Ollama.
@@ -141,6 +144,12 @@ Execute extraction:
 Ingest a structured CSV, Excel, JSON, or XML dataset without specifying a schema, triggering automatic header/key mapping and Fast-Pass cleaning:
 ```bash
 ./parsecore extract -i sales_data.csv -o cleaned_sales.json
+```
+
+**4. Live Web Ingestion and Extraction (v0.2.0):**
+Ingest a website directly using its URL, stripping scripts/styles/markup, segmenting the page text, and feeding it to the LLM (falling back to the `generic` schema):
+```bash
+./parsecore extract -i https://example.com -o web_data.json
 ```
 
 ---

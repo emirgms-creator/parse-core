@@ -15,6 +15,7 @@ go.work
 out*.json
 results*.json
 output.json
+web_*.json
 sample.pdf
 /tests/temp/
 test_doc_*.docx

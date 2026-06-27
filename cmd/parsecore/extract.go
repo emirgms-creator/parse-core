@@ -41,11 +41,13 @@ and structures the contents into specific JSON schemas concurrently using a loca
 			}
 		}
 
-		// 2. Validate File Format / Extension
-		ext := filepath.Ext(inputPath)
-		_, err := extractor.NewExtractor(ext)
-		if err != nil {
-			return fmt.Errorf("file validation failed: %w", err)
+		// 2. Validate File Format / Extension (bypass for URLs)
+		if !strings.HasPrefix(inputPath, "http://") && !strings.HasPrefix(inputPath, "https://") {
+			ext := filepath.Ext(inputPath)
+			_, err := extractor.NewExtractor(ext)
+			if err != nil {
+				return fmt.Errorf("file validation failed: %w", err)
+			}
 		}
 		return nil
 	},
@@ -93,11 +95,16 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	fmt.Print("⏳ Extracting text and segmenting chunks... ")
 	startTime := time.Now()
 
-	ext := filepath.Ext(inputPath)
-	docExtractor, err := extractor.NewExtractor(ext)
-	if err != nil {
-		fmt.Println("FAILED")
-		return fmt.Errorf("failed to initialize extractor: %w", err)
+	var docExtractor extractor.DocumentExtractor
+	if strings.HasPrefix(inputPath, "http://") || strings.HasPrefix(inputPath, "https://") {
+		docExtractor = &extractor.WebExtractor{}
+	} else {
+		ext := filepath.Ext(inputPath)
+		docExtractor, err = extractor.NewExtractor(ext)
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to initialize extractor: %w", err)
+		}
 	}
 
 	var chunks []string
