@@ -10,11 +10,11 @@ import (
 // CsvExtractor parses Comma Separated Values (.csv) and converts each row into a descriptive sentence.
 type CsvExtractor struct{}
 
-// ExtractText reads a CSV file, identifies headers, and translates rows into sentences.
-func (e *CsvExtractor) ExtractText(filePath string) (string, error) {
+// ExtractRows reads a CSV file, identifies headers, and extracts the rows.
+func (e *CsvExtractor) ExtractRows(filePath string) ([]Row, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open CSV file %q: %w", filePath, err)
+		return nil, fmt.Errorf("failed to open CSV file %q: %w", filePath, err)
 	}
 	defer f.Close()
 
@@ -22,14 +22,13 @@ func (e *CsvExtractor) ExtractText(filePath string) (string, error) {
 	reader.FieldsPerRecord = -1
 	records, err := reader.ReadAll()
 	if err != nil {
-		return "", fmt.Errorf("failed to parse CSV records from %q: %w", filePath, err)
+		return nil, fmt.Errorf("failed to parse CSV records from %q: %w", filePath, err)
 	}
 
 	if len(records) == 0 {
-		return "", nil
+		return nil, nil
 	}
 
-	var builder strings.Builder
 	var headers []string
 	startRow := 0
 
@@ -40,18 +39,43 @@ func (e *CsvExtractor) ExtractText(filePath string) (string, error) {
 		startRow = 1
 	}
 
+	var rows []Row
 	for i := startRow; i < len(records); i++ {
 		row := records[i]
-		var cols []string
+		var columns []Column
 		for j, val := range row {
 			headerName := fmt.Sprintf("Col%d", j+1)
 			if j < len(headers) && strings.TrimSpace(headers[j]) != "" {
 				headerName = strings.TrimSpace(headers[j])
 			}
-			cols = append(cols, fmt.Sprintf("%s=%s", headerName, val))
+			columns = append(columns, Column{
+				Name:  headerName,
+				Value: val,
+			})
 		}
-		// Write row values as a single logical sentence
-		builder.WriteString(fmt.Sprintf("Row %d: %s.\n", i, strings.Join(cols, ", ")))
+		rows = append(rows, Row{
+			Index:   i,
+			Columns: columns,
+		})
+	}
+
+	return rows, nil
+}
+
+// ExtractText reads a CSV file, identifies headers, and translates rows into sentences.
+func (e *CsvExtractor) ExtractText(filePath string) (string, error) {
+	rows, err := e.ExtractRows(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	var builder strings.Builder
+	for _, row := range rows {
+		var cols []string
+		for _, col := range row.Columns {
+			cols = append(cols, fmt.Sprintf("%s=%s", col.Name, col.Value))
+		}
+		builder.WriteString(fmt.Sprintf("Row %d: %s.\n", row.Index, strings.Join(cols, ", ")))
 	}
 
 	return builder.String(), nil

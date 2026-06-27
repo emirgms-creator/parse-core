@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,15 +33,17 @@ var extractCmd = &cobra.Command{
 	Long: `Extracts unstructured text from a local file (.pdf, .docx, .txt, .md, .csv), segments it into semantic chunks,
 and structures the contents into specific JSON schemas concurrently using a local Ollama LLM.`,
 	PreRunE: func(cmd *cobra.Command, args []string) error {
-		// 1. Validate Schema
-		_, err := llm.ResolveSystemPrompt(schemaName)
-		if err != nil {
-			return fmt.Errorf("schema validation failed: %w", err)
+		// 1. Validate Schema (bypass for auto schema)
+		if schemaName != "auto" {
+			_, err := llm.ResolveSystemPrompt(schemaName)
+			if err != nil {
+				return fmt.Errorf("schema validation failed: %w", err)
+			}
 		}
 
 		// 2. Validate File Format / Extension
 		ext := filepath.Ext(inputPath)
-		_, err = extractor.NewExtractor(ext)
+		_, err := extractor.NewExtractor(ext)
 		if err != nil {
 			return fmt.Errorf("file validation failed: %w", err)
 		}
@@ -54,7 +57,7 @@ func init() {
 	extractCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to save the resulting JSON array (Required)")
 	extractCmd.Flags().StringVarP(&modelName, "model", "m", "phi4-mini", "The local Ollama model to use")
 	extractCmd.Flags().StringVar(&ollamaURL, "url", "http://localhost:11434", "Ollama API server URL")
-	extractCmd.Flags().StringVarP(&schemaName, "schema", "s", "generic", "The extraction schema to target (generic, contract, invoice)")
+	extractCmd.Flags().StringVarP(&schemaName, "schema", "s", "auto", "The extraction schema to target (auto, generic, contract, invoice)")
 	extractCmd.Flags().IntVarP(&workerCount, "workers", "w", 4, "Number of concurrent worker Go routines")
 	extractCmd.Flags().IntVar(&chunkSize, "chunk-size", 2000, "Semantic chunk character limit")
 	extractCmd.Flags().IntVar(&overlapSize, "overlap", 200, "Sliding window overlap size between chunks")
@@ -67,9 +70,13 @@ func init() {
 }
 
 func runExtract(cmd *cobra.Command, args []string) error {
-	systemPrompt, err := llm.ResolveSystemPrompt(schemaName)
-	if err != nil {
-		return err // Should have been caught by PreRunE
+	var systemPrompt string
+	var err error
+	if schemaName != "auto" {
+		systemPrompt, err = llm.ResolveSystemPrompt(schemaName)
+		if err != nil {
+			return err // Should have been caught by PreRunE
+		}
 	}
 
 	// 1. Clean terminal header
@@ -82,7 +89,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	fmt.Printf("📦 Chunking:   Max size %d, Overlap %d\n", chunkSize, overlapSize)
 	fmt.Println("--------------------------------------------------")
 
-	// 2. Extraction & Semantic Chunking
+	// 2. Extraction & Semantic Chunking/Row Parsing
 	fmt.Print("⏳ Extracting text and segmenting chunks... ")
 	startTime := time.Now()
 
@@ -93,17 +100,38 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize extractor: %w", err)
 	}
 
-	rawText, err := docExtractor.ExtractText(inputPath)
-	if err != nil {
-		fmt.Println("FAILED")
-		return fmt.Errorf("extraction failed: %w", err)
-	}
+	var chunks []string
+	var rows []extractor.Row
+	var isRowExtractor bool
+	var rowExtractor extractor.RowExtractor
 
-	chunks := extractor.SemanticChunking(rawText, chunkSize, overlapSize)
-	fmt.Printf("Done! (Segmented into %d chunks)\n", len(chunks))
-
-	if len(chunks) == 0 {
-		return fmt.Errorf("no text chunks found in document")
+	if rowExt, ok := docExtractor.(extractor.RowExtractor); ok {
+		isRowExtractor = true
+		rowExtractor = rowExt
+		rows, err = rowExtractor.ExtractRows(inputPath)
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+		fmt.Printf("Done! (Extracted %d structured rows)\n", len(rows))
+	} else {
+		if schemaName == "auto" {
+			schemaName = "generic"
+			systemPrompt, err = llm.ResolveSystemPrompt("generic")
+			if err != nil {
+				return fmt.Errorf("failed to resolve generic system prompt for auto schema: %w", err)
+			}
+		}
+		rawText, err := docExtractor.ExtractText(inputPath)
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("extraction failed: %w", err)
+		}
+		chunks = extractor.SemanticChunking(rawText, chunkSize, overlapSize)
+		fmt.Printf("Done! (Segmented into %d chunks)\n", len(chunks))
+		if len(chunks) == 0 {
+			return fmt.Errorf("no text chunks found in document")
+		}
 	}
 
 	// 3. Concurrency Worker Pool Setup
@@ -111,15 +139,37 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
+	var totalItems int
+	if isRowExtractor {
+		totalItems = len(rows)
+	} else {
+		totalItems = len(chunks)
+	}
+
+	// Resolve schema fields and system prompt for RowExtractor
+	var schemaFields []extractor.SchemaField
+	if isRowExtractor {
+		if schemaName == "auto" {
+			schemaFields = extractor.GetSchemaFieldsFromRows(rows)
+			systemPrompt = extractor.GenerateSystemPromptForFields(schemaFields)
+		} else {
+			schemaFields, err = extractor.GetSchemaFields(schemaName)
+			if err != nil {
+				return fmt.Errorf("failed to resolve schema fields: %w", err)
+			}
+		}
+	}
+
 	jobs := make(chan struct {
 		id   int
 		text string
-	}, len(chunks))
+	}, totalItems)
 	results := make(chan struct {
-		chunkID int
-		doc     json.RawMessage
-		err     error
-	}, len(chunks))
+		chunkID    int
+		doc        json.RawMessage
+		isFastPass bool
+		err        error
+	}, totalItems)
 
 	var wg sync.WaitGroup
 
@@ -131,26 +181,68 @@ func runExtract(cmd *cobra.Command, args []string) error {
 			for job := range jobs {
 				doc, err := client.ParseText(ctx, job.text, systemPrompt)
 				results <- struct {
-					chunkID int
-					doc     json.RawMessage
-					err     error
+					chunkID    int
+					doc        json.RawMessage
+					isFastPass bool
+					err        error
 				}{
-					chunkID: job.id,
-					doc:     doc,
-					err:     err,
+					chunkID:    job.id,
+					doc:        doc,
+					isFastPass: false,
+					err:        err,
 				}
 			}
 		}(w)
 	}
 
-	// Feed chunks into the jobs channel
-	for i, chunk := range chunks {
-		jobs <- struct {
-			id   int
-			text string
-		}{id: i + 1, text: chunk}
+	// 4. Ingest and route items (Hybrid Fast-Pass Router)
+	if isRowExtractor {
+
+		for idx, row := range rows {
+			rowID := idx + 1
+
+			// Try Fast-Pass Heuristic Cleaning
+			if cleanedJSON, ok := extractor.CleanRow(row, schemaFields); ok {
+				results <- struct {
+					chunkID    int
+					doc        json.RawMessage
+					isFastPass bool
+					err        error
+				}{
+					chunkID:    rowID,
+					doc:        cleanedJSON,
+					isFastPass: true,
+					err:        nil,
+				}
+			} else {
+				// Fallback to AI-Pass (LLM worker pool)
+				// Reconstruct row text in original CSV extractor format
+				var cols []string
+				for _, col := range row.Columns {
+					cols = append(cols, fmt.Sprintf("%s=%s", col.Name, col.Value))
+				}
+				rowText := fmt.Sprintf("Row %d: %s.\n", row.Index, strings.Join(cols, ", "))
+
+				jobs <- struct {
+					id   int
+					text string
+				}{
+					id:   rowID,
+					text: rowText,
+				}
+			}
+		}
+		close(jobs)
+	} else {
+		// Feed standard chunks into jobs channel
+		for i, chunk := range chunks {
+			jobs <- struct {
+				id   int
+				text string
+			}{id: i + 1, text: chunk}
+		}
+		close(jobs)
 	}
-	close(jobs)
 
 	// Monitor workers to close results channel
 	go func() {
@@ -159,19 +251,22 @@ func runExtract(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Collect outputs concurrently
-	parsedDocs := make([]json.RawMessage, len(chunks))
+	parsedDocs := make([]json.RawMessage, totalItems)
 	var errors []string
 
 	for res := range results {
 		if res.err != nil {
-			errMsg := fmt.Sprintf("chunk #%d: %v", res.chunkID, res.err)
+			errMsg := fmt.Sprintf("item #%d: %v", res.chunkID, res.err)
 			errors = append(errors, errMsg)
-			fmt.Printf("❌ Chunk #%d: Error - %v\n", res.chunkID, res.err)
+			fmt.Printf("❌ Item #%d: Error - %v\n", res.chunkID, res.err)
 		} else {
 			parsedDocs[res.chunkID-1] = res.doc
-			// Print a brief summary snippet of the successfully parsed JSON block
 			summary := getJSONSummarySnippet(res.doc, schemaName)
-			fmt.Printf("✅ Chunk #%d: Success - %s\n", res.chunkID, summary)
+			if res.isFastPass {
+				fmt.Printf("⚡ Item #%d (Fast-Pass): Success - %s\n", res.chunkID, summary)
+			} else {
+				fmt.Printf("✅ Item #%d (AI-Pass): Success - %s\n", res.chunkID, summary)
+			}
 		}
 	}
 
@@ -182,7 +277,7 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 4. Save aggregated output JSON
+	// 5. Save aggregated output JSON
 	fmt.Print("⏳ Packaging and saving structured results... ")
 	var successfulDocs []json.RawMessage
 	for _, doc := range parsedDocs {

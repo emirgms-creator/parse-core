@@ -11,6 +11,46 @@ type DocumentExtractor interface {
 	ExtractText(filePath string) (string, error)
 }
 
+// Column represents a single key-value field in a structured row.
+type Column struct {
+	Name  string
+	Value string
+}
+
+// Row represents a parsed structured row from a document (like CSV).
+type Row struct {
+	Index   int
+	Columns []Column
+}
+
+// Get finds a column value by name (case-insensitive, trimmed).
+func (r Row) Get(name string) (string, bool) {
+	nameLower := strings.ToLower(strings.TrimSpace(name))
+	for _, col := range r.Columns {
+		if strings.ToLower(strings.TrimSpace(col.Name)) == nameLower {
+			return col.Value, true
+		}
+	}
+	return "", false
+}
+
+// GetWithAliases finds a column value by trying multiple aliases.
+func (r Row) GetWithAliases(aliases ...string) (string, bool) {
+	for _, alias := range aliases {
+		if val, ok := r.Get(alias); ok {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+// RowExtractor is implemented by extractors that can yield raw structured rows,
+// allowing the fast-pass router to bypass LLM processing.
+type RowExtractor interface {
+	DocumentExtractor
+	ExtractRows(filePath string) ([]Row, error)
+}
+
 // NewExtractor returns the appropriate DocumentExtractor implementation based on the file extension.
 func NewExtractor(ext string) (DocumentExtractor, error) {
 	cleanExt := strings.ToLower(strings.TrimPrefix(ext, "."))
