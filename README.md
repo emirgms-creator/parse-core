@@ -16,9 +16,12 @@ It is engineered to extract unstructured text from multiple document formats, br
     *   `.pdf` (using lightweight text extraction)
     *   `.docx` (pure-Go CGO-free Word XML processor)
     *   `.csv` (variable-column tolerant table parser mapping headers to values)
+    *   `.xlsx` (spreadsheet cell processor mapping column headers to row values)
+    *   `.json` & `.jsonl` (standard JSON arrays of objects and newline-delimited JSON)
+    *   `.xml` (recursive child element parser mapping tags to keys)
     *   `.txt` & `.md` (native standard library readers)
-*   **Hybrid Fast-Pass Router (v0.2.0 New)**: Aggressively intercept structured rows (CSV). Clean or trivially dirty cells (containing `ERROR`, `UNKNOWN`, `N/A`, `NULL`, `NONE`, `-` or empty values) are resolved and mapped deterministically, bypassing the LLM completely (**Fast-Pass ⚡**). Unstructured or complex natural language text is automatically routed to LLM concurrent workers (**AI-Pass Fallback ✅**), enabling massive performance speedups (e.g., 10,000 CSV rows parsed in under 200ms).
-*   **Auto-Schema Inference (v0.2.0 New)**: Default schema option (`auto`) automatically inspects structured inputs and generates JSON schema fields on-the-fly from the CSV column headers, generating target prompts dynamically. For unstructured files (PDF, DOCX, etc.), it fallback-routes to the `generic` schema.
+*   **Hybrid Fast-Pass Router (v0.2.0 New)**: Aggressively intercept structured rows (CSV, Excel, JSON, XML). Clean or trivially dirty cells (containing `ERROR`, `UNKNOWN`, `N/A`, `NULL`, `NONE`, `-` or empty values) are resolved and mapped deterministically, bypassing the LLM completely (**Fast-Pass ⚡**). Unstructured or complex natural language text is automatically routed to LLM concurrent workers (**AI-Pass Fallback ✅**), enabling massive performance speedups (e.g., 10,000 structured rows parsed in under 200ms).
+*   **Auto-Schema Inference (v0.2.0 New)**: Default schema option (`auto`) automatically inspects structured inputs and generates JSON schema fields on-the-fly from the column headers/keys, generating target prompts dynamically. For unstructured files (PDF, DOCX, etc.), it fallback-routes to the `generic` schema.
 *   **Semantic Chunking with Overlap**: Respects natural language boundaries. Segments text hierarchically:
     1.  *Primary*: Paragraph boundaries (`\n\n`)
     2.  *Secondary*: Sentence boundaries (`. `, `! `, `? `)
@@ -51,9 +54,13 @@ parse-core/
 │   │   ├── pdf.go                 # PDF extractor
 │   │   ├── text.go                # Text and Markdown extractor
 │   │   ├── csv.go                 # Variable-column CSV extractor
+│   │   ├── excel.go               # Excel sheet extractor (v0.2.0)
+│   │   ├── json.go                # JSON and JSONL array/NDJSON extractor (v0.2.0)
+│   │   ├── xml.go                 # XML node recursive extractor (v0.2.0)
 │   │   ├── docx.go                # CGO-free DOCX extractor
 │   │   ├── router.go              # Heuristic cleaning & LLM routing engine
 │   │   ├── router_test.go         # Router and fast-pass unit tests
+│   │   ├── new_formats_test.go    # Excel, JSON, XML extractor unit tests
 │   │   └── extractor_test.go      # Boundary unit tests
 │   ├── llm/
 │   │   ├── client.go              # Ollama API client with exponential backoff retries
@@ -100,9 +107,9 @@ Use the `extract` subcommand to process local documents.
 
 ### Command Flags
 
-*   `-i, --input` (Required): Path to target document (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`).
+*   `-i, --input` (Required): Path to target document (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`, `.xlsx`, `.json`, `.jsonl`, `.xml`).
 *   `-o, --output` (Required): Path to save the resulting structured JSON array.
-*   `-s, --schema` (Default: `auto`): Extraction schema type (`auto`, `generic`, `contract`, `invoice`) or a local custom JSON schema file path (e.g. `--schema ./invoice_template.json`). If `auto`, the system auto-infers headers for structured CSV rows and falls back to `generic` for unstructured documents.
+*   `-s, --schema` (Default: `auto`): Extraction schema type (`auto`, `generic`, `contract`, `invoice`) or a local custom JSON schema file path (e.g. `--schema ./invoice_template.json`). If `auto`, the system auto-infers headers/keys for structured rows (CSV, Excel, JSON, XML) and falls back to `generic` for unstructured documents.
 *   `-m, --model` (Default: `phi4-mini`): Local LLM model tag registered in Ollama.
 *   `-w, --workers` (Default: `4`): Number of concurrent goroutines parsing text chunks.
 *   `--chunk-size` (Default: `2000`): Maximum character limit per semantic chunk.
@@ -130,8 +137,8 @@ Execute extraction:
 ./parsecore extract -i lease.docx -o terms.json --schema contract_terms.json -m phi4-mini:latest -w 2
 ```
 
-**3. Zero-Config CSV Auto-Ingestion & Cleaning (v0.2.0):**
-Ingest a structured CSV dataset without specifying a schema, triggering automatic header mapping and Fast-Pass cleaning:
+**3. Zero-Config Structured Data Auto-Ingestion & Cleaning (v0.2.0):**
+Ingest a structured CSV, Excel, JSON, or XML dataset without specifying a schema, triggering automatic header/key mapping and Fast-Pass cleaning:
 ```bash
 ./parsecore extract -i sales_data.csv -o cleaned_sales.json
 ```

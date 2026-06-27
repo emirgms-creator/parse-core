@@ -61,10 +61,16 @@ func NewExtractor(ext string) (DocumentExtractor, error) {
 		return &TextExtractor{}, nil
 	case "csv":
 		return &CsvExtractor{}, nil
+	case "xlsx":
+		return &ExcelExtractor{}, nil
+	case "json", "jsonl":
+		return &JsonExtractor{}, nil
+	case "xml":
+		return &XmlExtractor{}, nil
 	case "docx":
 		return &DocxExtractor{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported file format: %s. Supported formats are: .pdf, .docx, .txt, .md, .csv", ext)
+		return nil, fmt.Errorf("unsupported file format: %s. Supported formats are: .pdf, .docx, .txt, .md, .csv, .xlsx, .json, .jsonl, .xml", ext)
 	}
 }
 
